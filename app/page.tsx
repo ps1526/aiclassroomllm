@@ -1,88 +1,9 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-
-// Document Uploader Component
-function DocumentUploader() {
-  const [isUploading, setIsUploading] = useState(false);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-      setError('Only PDF files are supported');
-      return;
-    }
-    
-    setIsUploading(true);
-    setMessage('');
-    setError('');
-    
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      });
-      
-      const result = await response.json();
-      
-      if (response.ok) {
-        setMessage(result.message);
-      } else {
-        setError(result.error || 'Failed to upload document');
-      }
-    } catch (err) {
-      setError('Error uploading document. Please try again.');
-      console.error(err);
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  return (
-    <div className="mb-8 p-4 border rounded-lg bg-white shadow-sm">
-      <h2 className="text-xl font-bold mb-4">Upload Hardware Documentation</h2>
-      
-      <div className="flex flex-col">
-        <label htmlFor="file-upload" className="mb-2">
-          Select a PDF file to upload:
-        </label>
-        <input
-          id="file-upload"
-          type="file"
-          accept=".pdf"
-          onChange={handleFileChange}
-          disabled={isUploading}
-          className="border p-2 rounded"
-        />
-      </div>
-      
-      {isUploading && (
-        <div className="mt-4">
-          <p className="text-blue-600">Uploading and processing document...</p>
-        </div>
-      )}
-      
-      {message && (
-        <div className="mt-4 p-3 bg-green-100 text-green-700 rounded">
-          {message}
-        </div>
-      )}
-      
-      {error && (
-        <div className="mt-4 p-3 bg-red-100 text-red-700 rounded">
-          {error}
-        </div>
-      )}
-    </div>
-  );
-}
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
 
 // Chat Interface Component
 function ChatInterface() {
@@ -109,7 +30,7 @@ function ChatInterface() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, isLoading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -183,8 +104,21 @@ function ChatInterface() {
     }));
   };
 
+  // Format AI responses to automatically add structure
+  const formatAIResponse = (content: string) => {
+    // Only process if it's not already structured with markdown
+    if (!content.includes('#') && !content.includes('-') && !content.includes('*') && !content.includes('\n\n')) {
+      // Convert paragraphs (double newlines) to proper markdown paragraphs
+      let formattedContent = content.replace(/\.\s+/g, '.\n\n');
+      // Add bold to key phrases
+      formattedContent = formattedContent.replace(/(^|\s)(Dante Controller|Dante Virtual Soundcard|Pro Tools|Pinecone|Gemini)(\s|$)/g, '$1**$2**$3');
+      return formattedContent;
+    }
+    return content;
+  };
+
   return (
-    <div className="h-[60vh] flex flex-col border rounded-lg bg-white shadow-sm">
+    <div className="h-[80vh] flex flex-col border rounded-lg bg-white shadow-sm">
       <div className="flex-1 overflow-y-auto p-4">
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
@@ -194,29 +128,42 @@ function ChatInterface() {
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-6">
             {messages.map((message) => (
               <div key={message.id} className="flex flex-col">
                 <div className={`chat-message ${message.isUser ? 'user-message' : 'ai-message'}`}>
-                  {message.content}
+                  {message.isUser ? (
+                    <p>{message.content}</p>
+                  ) : (
+                    <ReactMarkdown 
+                      remarkPlugins={[remarkGfm]} 
+                      rehypePlugins={[rehypeHighlight]}
+                    >
+                      {formatAIResponse(message.content)}
+                    </ReactMarkdown>
+                  )}
                 </div>
                 
                 {!message.isUser && message.sources && message.sources.length > 0 && (
                   <div className="ml-2 mt-1">
                     <button
                       onClick={() => toggleSources(message.id)}
-                      className="text-sm text-blue-600 hover:underline"
+                      className="text-sm text-blue-600 hover:underline flex items-center"
                     >
-                      {showSources[message.id] ? 'Hide sources' : 'Show sources'}
+                      <span className="mr-1">{showSources[message.id] ? '▼' : '►'}</span> 
+                      {showSources[message.id] ? 'Hide sources' : 'Show sources'} 
+                      <span className="ml-1 bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full">
+                        {message.sources.length}
+                      </span>
                     </button>
                     
                     {showSources[message.id] && (
-                      <div className="mt-2">
-                        <h4 className="text-sm font-bold">Sources:</h4>
+                      <div className="mt-2 space-y-2">
+                        <h4 className="text-sm font-bold text-gray-700">Sources:</h4>
                         {message.sources.map((source, index) => (
                           <div key={index} className="source-item">
-                            <p className="font-semibold">{source.title} (Page: {source.page})</p>
-                            <p className="text-gray-500">{source.content}</p>
+                            <div className="font-semibold text-blue-800">{source.title} {source.page !== 'N/A' && <span>(Page: {source.page})</span>}</div>
+                            <p className="text-gray-600 mt-1 text-sm italic">{source.content}</p>
                           </div>
                         ))}
                       </div>
@@ -225,6 +172,20 @@ function ChatInterface() {
                 )}
               </div>
             ))}
+            {isLoading && (
+              <div className="flex flex-col">
+                <div className="chat-message ai-message">
+                  <div className="flex items-center">
+                    <div className="animate-pulse flex space-x-2 items-center">
+                      <div className="h-2 w-2 bg-blue-500 rounded-full"></div>
+                      <div className="h-2 w-2 bg-blue-500 rounded-full"></div>
+                      <div className="h-2 w-2 bg-blue-500 rounded-full"></div>
+                      <span className="ml-2 text-gray-600">Generating response...</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
         <div ref={messagesEndRef} />
@@ -255,25 +216,14 @@ function ChatInterface() {
 
 // Main Page Component
 export default function HomePage() {
-  const [showUploader, setShowUploader] = useState(false);
-  
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-4xl mx-auto px-4 py-8">
       <header className="text-center mb-8">
         <h1 className="text-3xl font-bold mb-2">Hardware Documentation Chatbot</h1>
         <p className="text-gray-600 mb-4">
           Ask questions about your hardware documentation using AI
         </p>
-        
-        <button
-          onClick={() => setShowUploader(!showUploader)}
-          className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300 text-gray-800"
-        >
-          {showUploader ? 'Hide Document Uploader' : 'Upload Documentation'}
-        </button>
       </header>
-      
-      {showUploader && <DocumentUploader />}
       
       <ChatInterface />
     </div>

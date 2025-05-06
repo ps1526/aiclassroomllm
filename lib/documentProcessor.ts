@@ -7,6 +7,7 @@ import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
 import { Pinecone } from '@pinecone-database/pinecone';
 import { PDFLoader } from 'langchain/document_loaders/fs/pdf';
 import { vectorDbConfig, llmConfig, documentConfig } from './config';
+import { captureLog } from '../app/api/logs/route';
 
 // Initialize Pinecone client
 const pinecone = new Pinecone({
@@ -16,8 +17,45 @@ const pinecone = new Pinecone({
 // Initialize Embeddings
 const embeddings = new GoogleGenerativeAIEmbeddings({
   apiKey: llmConfig.apiKey,
-  modelName: llmConfig.embeddingModel,
+  modelName: "embedding-001",
 });
+
+// Cache for vector store to avoid reinitializing it on every query
+let vectorStoreCache: PineconeStore | null = null;
+
+/**
+ * Get or create vector store with caching
+ */
+async function getVectorStore() {
+  try {
+    if (vectorStoreCache) {
+      captureLog("Using cached vector store");
+      return vectorStoreCache;
+    }
+
+    captureLog("Initializing vector store...");
+    const storeStartTime = Date.now();
+    
+    const index = pinecone.Index(vectorDbConfig.indexName);
+    
+    const vectorStore = await PineconeStore.fromExistingIndex(embeddings, {
+      pineconeIndex: index,
+      namespace: vectorDbConfig.namespace,
+      textKey: 'text',
+    });
+    
+    const storeEndTime = Date.now();
+    captureLog(`Vector store initialized in ${storeEndTime - storeStartTime}ms`);
+    
+    // Cache the vector store for future use
+    vectorStoreCache = vectorStore;
+    
+    return vectorStore;
+  } catch (error) {
+    captureLog(`Error initializing vector store: ${error}`);
+    throw error;
+  }
+}
 
 /**
  * Process a document and store it in Pinecone vector database
@@ -94,22 +132,32 @@ export async function processDocument(file: File) {
  */
 export async function searchDocuments(query: string, limit: number = 3) {
   try {
-    // Get the Pinecone index
-    const index = pinecone.Index(vectorDbConfig.indexName);
+    captureLog(`Starting document search for: "${query}"`);
+    const startTime = Date.now();
     
-    // Initialize the vector store
-    const vectorStore = await PineconeStore.fromExistingIndex(embeddings, {
-      pineconeIndex: index,
-      namespace: vectorDbConfig.namespace,
-      textKey: 'text',
-    });
+    // Get the Pinecone index
+    captureLog(`Getting Pinecone index...`);
+    const indexStartTime = Date.now();
+    const index = pinecone.Index(vectorDbConfig.indexName);
+    const indexEndTime = Date.now();
+    captureLog(`Got Pinecone index in ${indexEndTime - indexStartTime}ms`);
+    
+    // Get or initialize the vector store (now using cached version)
+    const vectorStore = await getVectorStore();
     
     // Perform similarity search
+    captureLog(`Performing similarity search...`);
+    const searchStartTime = Date.now();
     const results = await vectorStore.similaritySearch(query, limit);
+    const searchEndTime = Date.now();
+    captureLog(`Similarity search completed in ${searchEndTime - searchStartTime}ms`);
+    
+    const endTime = Date.now();
+    captureLog(`Total document search time: ${endTime - startTime}ms. Found ${results.length} results.`);
     
     return results;
   } catch (error) {
-    console.error('Error searching documents:', error);
+    captureLog(`Error searching documents: ${error}`);
     return [];
   }
 } 

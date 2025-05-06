@@ -1,0 +1,1 @@
+# Chiba Lab AI Classroom Hardware Documentation Assistant

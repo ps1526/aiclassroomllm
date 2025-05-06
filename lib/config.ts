@@ -11,7 +11,7 @@ export const llmConfig = {
   apiKey: process.env.GOOGLE_API_KEY || '',
   
   // Model settings
-  modelName: process.env.GEMINI_MODEL_NAME || 'gemini-pro',
+  modelName: process.env.GEMINI_MODEL_NAME || 'gemini-1.5-flash',
   
   // Generation parameters
   temperature: parseFloat(process.env.GEMINI_TEMPERATURE || '0.2'),
